@@ -1,0 +1,104 @@
+An Object Storage System based on External B-Tree Data Structure
+
+* inode:
+  index node for objects management.
+  inode size: 4K-byte
+
+* feature:
+  No delete operation on file/objects and inodes,
+  though modify on inode is allowed.
+  
+* index structure:
+** bitmap:
+   record {un,}allocated inodes.
+   
+** allocator:
+   allocate/deallocate inodes.
+   
+* tree node(object index):
+** root node:
+   always have a copy at a fixed place, though the real root node
+   may not at a fixed place on disk(when root node splited).
+   
+** layout of inode:
+   length   : 4-byte, 4K-byte, length of inode.
+   index    : inode array index.
+   paylaod  : (4K - 8) bytes.
+
+** layout of payload(tree node):
+   (ptr, key, value) * N
+   ptr        : the inode index payload belongs to.
+   key        : obj_id
+   value      : (obj_ofs, obj_sz)
+   tnode entry: (ptr, obj_id, obj_ofs, obj_sz)
+   4,4,8,4
+   20-byte per kv pair.
+   ~200 entries per node.
+   file_offset align to 8-byte.
+
+*** checksum: for the node.
+    
+* layout of index file:
+
+** capacity:
+   inode size        : 4K-byte
+   entries per inode : 4K/20 = ~200
+   inode count       : 4G/4K = 1M
+   bitmap size       : 1M/8  = 128K-bytes.
+   index file size   : (4K + 128K + 4G) bytes.
+
+** index file:
+   * [1] HEADER: offset=0, size=4K *
+   header             : 4-byte, 0xd0d0baba.
+   version            : 4-byte, version of index file.
+
+   length             : 8-byte, index file size.
+   check_sum          : 8-byte, CRC32 for bitmap or index file.
+
+   inode count        : 4-byte.
+   max inode count    : 4-byte, (1M, ~10^6 nodes).
+
+   object count       : 4-byte, count of data object.
+   max object count   : 4-byte, (100M~200M, 10^8~2*10^8 objects).
+
+   object capacity    : 8-byte.
+   max object capacity: 8-byte, (4T, 2^42 bytes).
+
+   root inode index   : 4-byte, (from 0, default 0).
+
+   * [2] BITMAP: offset=4K, size=128K *
+   inode bitmap: 1-bit per inode, up to 1M bits.
+
+   * [3] INODE: offset=132K, size=4G *
+   inode array: 4K-byte per inode, up to ~10^6 inodes.
+   see "layout of inode"
+
+** (data) object:
+   header: 0xd0d03a3a
+   cookie: unused, 4-byte
+   file size: 8-byte, real file size.
+   data size: 8-byte, pure data size.
+   objects count: 4-byte
+   padding: 4-byte
+   object array:
+     see below "object file layout"
+     offset: 4K-byte.
+
+** object layout:
+   header: 4-byte, 0xd0d0dede
+   length: 4-byte
+   flags: mark for deletion, 4-byte
+   checksum: 4-byte, CRC32 for data.
+   data: 8 * N bytes.
+   length: 4-byte
+   tail: 4-byte, 0xd0d03e3e
+   
+   
+* choice for B-Tree over B+Tree
+** no need for range scan:
+   photo file is no need to access sequenctialy.
+** B+Tree waste more space:
+
+* benchmark plan:
+  compare performance against using SQLite,
+  store (file_id, file_offset, file_size) in db.
